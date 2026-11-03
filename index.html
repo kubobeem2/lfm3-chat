@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LFM3チャット — ブラウザで動くキャラチャット</title>
+<meta name="description" content="Liquid AIのLFM3-1.7Bをブラウザに直接埋め込んだ、zeta風のキャラチャット。会話はサーバーに送られず端末で動きます。">
+<style>
+:root{--pink:#ff4d6d;--pink2:#ff8fa3;--bg:#fff5f7;--ink:#2b2b2b;--mut:#8a8a8a;--line:#ffd6dd}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Hiragino Kaku Gothic ProN",sans-serif;background:var(--bg);color:var(--ink)}
+a{color:var(--pink)}button{font:inherit;cursor:pointer}
+header.top{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);padding:12px 16px;display:flex;align-items:center;gap:10px}
+header.top h1{font-size:18px;margin:0}header.top p{margin:0;font-size:12px;color:var(--mut)}
+.wrap{max-width:760px;margin:0 auto;padding:16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px}
+.modelbar{margin-bottom:14px}
+.modelbar .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;background:#ccc;display:inline-block}
+.dot.ready{background:#2ecc71}.dot.busy{background:#f5a623}.dot.err{background:#e74c3c}
+.btn{background:var(--pink);color:#fff;border:0;border-radius:999px;padding:10px 18px;font-weight:700}
+.btn:disabled{opacity:.5}.btn.ghost{background:#fff;color:var(--pink);border:1.5px solid var(--pink)}
+.btn.small{padding:6px 12px;font-size:13px}
+.progress{height:10px;background:#ffe3e8;border-radius:99px;overflow:hidden;margin-top:10px}
+.progress i{display:block;height:100%;width:0;background:var(--pink);transition:width .2s}
+#modelMsg{font-size:13px;color:#555;white-space:pre-wrap;word-break:break-all;margin-top:8px}
+.note{font-size:12px;color:var(--mut);line-height:1.6}
+.search{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:999px;font-size:15px;outline:none}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}
+@media(min-width:600px){.grid{grid-template-columns:repeat(3,1fr)}}
+.char{border:1px solid var(--line);border-radius:16px;background:#fff;padding:14px;text-align:left}
+.char .av{font-size:42px}.char b{font-size:16px;display:block;margin-top:6px}.char span{font-size:12px;color:var(--mut);line-height:1.5;display:block}
+.char .go{margin-top:10px;color:var(--pink);font-weight:700;font-size:13px}
+.view{display:none}.view.on{display:block}
+.chathead{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:10px 12px}
+.chathead .av{font-size:32px}.chathead b{font-size:16px}.chathead span{font-size:12px;color:var(--mut)}
+.msgs{padding:14px 4px 110px}
+.msg{display:flex;gap:8px;margin:12px 0;align-items:flex-end}
+.msg .av{font-size:26px;flex:none}.msg.me{flex-direction:row-reverse}
+.bubble{max-width:78%;padding:10px 13px;border-radius:16px;line-height:1.65;font-size:15px;white-space:pre-wrap;word-break:break-word}
+.msg.ai .bubble{background:#fff;border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg.me .bubble{background:var(--pink);color:#fff;border-bottom-right-radius:4px}
+.meta{font-size:11px;color:var(--mut);margin-top:4px}.msg.me .meta{text-align:right}
+.act{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.act button{font-size:12px;border:1px solid var(--line);background:#fff;border-radius:99px;padding:4px 10px}
+.composer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:10px max(12px,env(safe-area-inset-left)) calc(10px + env(safe-area-inset-bottom))}
+.composer .inner{max-width:760px;margin:0 auto;display:flex;gap:8px;align-items:flex-end}
+.composer textarea{flex:1;resize:none;border:1.5px solid var(--line);border-radius:14px;padding:10px 12px;font:inherit;font-size:15px;max-height:110px}
+dialog{border:1px solid var(--line);border-radius:18px;padding:18px;max-width:520px;width:calc(100% - 32px)}
+dialog input,dialog textarea,dialog select{width:100%;padding:10px;border:1.5px solid var(--line);border-radius:10px;font:inherit;margin:6px 0 12px}
+label{font-size:13px;font-weight:700}
+</style>
+</head>
+<body>
+<header class="top"><span style="font-size:26px">💬</span><div><h1>LFM3チャット</h1><p>ブラウザで動くキャラチャット / zeta風・非公式</p></div></header>
+
+<div class="wrap">
+<!-- HOME -->
+<div id="homeView" class="view on">
+  <div class="card modelbar">
+    <div class="row"><span id="statusDot" class="dot"></span><b id="statusText">モデル未読み込み</b><span class="note" id="deviceNote"></span></div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" id="loadBtn">モデルを読み込む（約1.5GB）</button>
+      <button class="btn ghost small" id="fallbackBtn">ONNXで再試行</button>
+      <button class="btn ghost small" id="clearCacheBtn">履歴を全削除</button>
+    </div>
+    <div class="progress"><i id="bar"></i></div>
+    <div id="modelMsg">まず「モデルを読み込む」を押してね。初回だけ約1.5GBのダウンロードがあって、2回目以降はブラウザのキャッシュから速く始まるよ。Wi-Fi推奨。</div>
+    <p class="note">エンジン: WebLLM 0.2.85 + CharlZKP/LFM3-1.7B-MLC（q6f16_a、LiquidAI LFM3-1.7BのWebGPU変換版）。会話はサーバーに送られない。初回ダウンロードだけHugging Faceから取るよ。PCのChrome/Edge推奨。スマホはWebGPUのshader-f16対応次第で動かないこともあるよ。</p>
+  </div>
+
+  <div style="display:flex;gap:8px">
+    <input id="search" class="search" placeholder="キャラをさがす…">
+    <button class="btn" id="createBtn">＋つくる</button>
+  </div>
+  <div class="grid" id="grid"></div>
+  <p class="note" style="margin-top:16px">キャラは全部オリジナル。zeta公式とは関係ないよ。キャラの会話履歴はこの端末のlocalStorageだけに残るよ。</p>
+  <details class="note" style="margin-top:12px"><summary>しくみ・ライセンス</summary>
+    <p>モデル: LiquidAI LFM3-1.7B（1.73Bパラメータ、tri-hybrid: 短い畳み込み13層＋スライディングウィンドウ注意5層＋全体注意6層）。ライセンスは LFM Open License v1.0。ブラウザ変換版は CharlZKP/LFM3-1.7B-MLC。WebLLMのcontextは32768トークンに設定してあるけど、チャットでは直近のやり取りだけモデルに送るよ。</p>
+    <p>参考: <a href="https://huggingface.co/LiquidAI/LFM3-1.7B">LiquidAI/LFM3-1.7B</a> / <a href="https://huggingface.co/CharlZKP/LFM3-1.7B-MLC">CharlZKP/LFM3-1.7B-MLC</a> / <a href="https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF">GGUF版（PCのllama.cpp用）</a></p>
+  </details>
+</div>
+
+<!-- CHAT -->
+<div id="chatView" class="view">
+  <div class="chathead">
+    <button class="btn ghost small" id="backBtn">← もどる</button>
+    <span class="av" id="chatAv"></span>
+    <div style="flex:1"><b id="chatName"></b><br><span id="chatTag"></span></div>
+    <button class="btn ghost small" id="newChatBtn">新しい会話</button>
+  </div>
+  <div class="msgs" id="msgs"></div>
+</div>
+</div>
+
+<div class="composer" id="composer" style="display:none">
+  <div class="inner">
+    <textarea id="input" rows="1" placeholder="メッセージを送る…（Enterで送信、Shift+Enterで改行）"></textarea>
+    <button class="btn" id="sendBtn">送信</button>
+    <button class="btn ghost" id="stopBtn" style="display:none">停止</button>
+  </div>
+  <div style="max-width:760px;margin:6px auto 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <label style="font-size:12px">温度 <input type="range" id="temp" min="0.1" max="1" step="0.1" value="0.7" style="width:90px;vertical-align:middle"> <span id="tempVal">0.7</span></label>
+    <label style="font-size:12px">長さ <select id="maxTok" style="padding:4px;border-radius:8px"><option value="128">短め</option><option value="256" selected>ふつう</option><option value="512">長め</option></select></label>
+    <span class="note" id="genNote"></span>
+  </div>
+</div>
+
+<dialog id="createDlg">
+  <form method="dialog">
+    <h3 style="margin-top:0">キャラをつくる</h3>
+    <label>名前</label><input id="fName" placeholder="例：あかり">
+    <label>アイコン（絵文字1つ）</label><input id="fEmoji" placeholder="例：🍗" maxlength="4">
+    <label>ひとこと紹介</label><input id="fTag" placeholder="例：元気な幼なじみ">
+    <label>性格・設定（モデルへの指示になるよ）</label><textarea id="fPersona" rows="3" placeholder="例：明るくて元気な幼なじみ。唐揚げが大好き。短めの返信で、たまに絵文字を使う。"></textarea>
+    <label>最初のあいさつ</label><textarea id="fGreet" rows="2" placeholder="例：やっほー！今日はなにする？"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn ghost" value="cancel">やめる</button><button class="btn" id="saveCharBtn" value="save">つくる</button></div>
+  </form>
+</dialog>
+
+<script type="module">
+const $=s=>document.querySelector(s);
+const LS_C='lfm3chat.chars.v1', LS_H='lfm3chat.hist.v1';
+const PRESETS=[
+ {id:'akari',emoji:'🍗',name:'あかり',tag:'元気な幼なじみ・唐揚げ好き',persona:'明るくて元気な幼なじみ。唐揚げが大好きで、食べ物の話になるとテンションが上がる。返信は短め〜中くらい、会話らしく、たまに絵文字を使う。',greet:'やっほー！今日はなにする？唐揚げでも食べながら話そ？'},
+ {id:'sora',emoji:'🌙',name:'そら',tag:'クールな先輩、実は面倒見がいい',persona:'クールで少しぶっきらぼうな先輩。口数は少ないけど、困っている人は放っておけない。返信は短めで、たまにだけ優しさがにじむ。',greet:'……なに。暇なら付き合ってやるよ。'},
+ {id:'yuki',emoji:'📚',name:'ゆき',tag:'ほんわか図書委員',persona:'ほんわかした図書委員。本の話が好きで、静かだけど好奇心は強い。丁寧でやわらかい口調。返信は中くらいの長さ。',greet:'こんにちは。今日はどんな本の話をしようか？'},
+ {id:'ren',emoji:'🤖',name:'れん',tag:'皮肉屋なロボット助手',persona:'ちょっと皮肉屋なロボット助手。砕けたタメ口で、短文で返す。根は味方で、質問にはちゃんと答える。長い説教はしない。',greet:'よお。なんか用？短く言ってくれると助かる。'},
+];
+function loadChars(){try{const c=JSON.parse(localStorage.getItem(LS_C)||'null');return Array.isArray(c)&&c.length?c:PRESETS}catch{return PRESETS}}
+function saveChars(c){localStorage.setItem(LS_C,JSON.stringify(c))}
+function loadHist(){try{return JSON.parse(localStorage.getItem(LS_H)||'{}')}catch{return {}}}
+function saveHist(h){localStorage.setItem(LS_H,JSON.stringify(h))}
+let chars=loadChars(), hist=loadHist(), current=null, engine=null, engineKind=null, gen=null, stopFlag=false;
+
+$('#deviceNote').textContent = navigator.gpu ? 'WebGPUあり' : 'WebGPUなし（CPUだと遅いかも）';
+function setStatus(kind,text){const d=$('#statusDot');d.className='dot '+kind;$('#statusText').textContent=text}
+function setMsg(t){$('#modelMsg').textContent=t}
+function setBar(p){$('#bar').style.width=Math.max(0,Math.min(100,p*100))+'%'}
+
+function renderGrid(){
+  const q=($('#search').value||'').trim();
+  $('#grid').innerHTML='';
+  chars.filter(c=>!q||c.name.includes(q)||(c.tag||'').includes(q)).forEach(c=>{
+    const b=document.createElement('button');b.className='char';
+    b.innerHTML='';const av=document.createElement('div');av.className='av';av.textContent=c.emoji||'💬';
+    const nm=document.createElement('b');nm.textContent=c.name;
+    const tg=document.createElement('span');tg.textContent=c.tag||'';
+    const go=document.createElement('div');go.className='go';go.textContent='トークをはじめる →';
+    b.append(av,nm,tg,go);b.onclick=()=>openChat(c.id);$('#grid').appendChild(b);
+  });
+}
+$('#search').oninput=renderGrid;
+renderGrid();
+
+function showHome(){$('#homeView').classList.add('on');$('#chatView').classList.remove('on');$('#composer').style.display='none'}
+function openChat(id){
+  current=chars.find(c=>c.id===id);if(!current)return;
+  $('#chatAv').textContent=current.emoji||'💬';$('#chatName').textContent=current.name;$('#chatTag').textContent=current.tag||'';
+  if(!hist[id]) hist[id]=[{role:'assistant',content:current.greet||'こんにちは。'}];
+  $('#homeView').classList.remove('on');$('#chatView').classList.add('on');$('#composer').style.display='block';
+  renderMsgs();window.scrollTo(0,0);
+}
+$('#backBtn').onclick=()=>{saveHist(hist);showHome()};
+$('#newChatBtn').onclick=()=>{if(!current)return;hist[current.id]=[{role:'assistant',content:current.greet||'こんにちは。'}];saveHist(hist);renderMsgs()};
+
+function renderMsgs(){
+  const box=$('#msgs');box.innerHTML='';
+  (hist[current.id]||[]).forEach((m,i,arr)=>{
+    const row=document.createElement('div');row.className='msg '+(m.role==='user'?'me':'ai');
+    if(m.role!=='user'){const av=document.createElement('span');av.className='av';av.textContent=current.emoji||'💬';row.appendChild(av)}
+    const wrap=document.createElement('div');wrap.style.maxWidth='78%';
+    const bub=document.createElement('div');bub.className='bubble';bub.textContent=m.content;wrap.appendChild(bub);
+    const meta=document.createElement('div');meta.className='meta';meta.textContent=m.role==='user'?'あなた':'';
+    wrap.appendChild(meta);
+    if(m.role==='assistant'&&i===arr.length-1){
+      const act=document.createElement('div');act.className='act';
+      const cp=document.createElement('button');cp.textContent='コピー';cp.onclick=()=>navigator.clipboard.writeText(m.content).catch(()=>{});
+      const rg=document.createElement('button');rg.textContent='再生成';rg.onclick=()=>regenerate();
+      act.append(cp,rg);wrap.appendChild(act);
+    }
+    row.appendChild(wrap);box.appendChild(row);
+  });
+  window.scrollTo(0,document.body.scrollHeight);
+}
+function cleanReply(t){
+  if(!t)return '';
+  // thinkingブロックを画面から外す（LFM3はthinkingがデフォルトで出る）
+  t=t.replace(/<think>[\s\S]*?<\/think>/g,'').replace(/<think>[\s\S]*$/,'');
+  t=t.replace(/<\|im_end\|>|<\|endoftext\|>|<\|im_start\|>assistant/g,'');
+  return t.replace(/\n{3,}/g,'\n\n').trim();
+}
+function cleanPartial(t){ // ストリーミング中の表示用
+  if(t.includes('<think>')&&!t.includes('</think>')) return '';
+  return cleanReply(t);
+}
+function systemPrompt(c){
+  return 'あなたは「'+c.name+'」というキャラクターです。設定: '+(c.persona||'')+'\nルール: 日本語で会話する。キャラになりきり、AI・モデル・システムの話はしない。ユーザーの名前は聞かれていないので勝手に決めない。返信は会話らしく、だらだら長くしない。';
+}
+function modelMessages(){
+  const h=hist[current.id]||[];
+  const tail=h.slice(-14);
+  return [{role:'system',content:systemPrompt(current)},...tail.map(m=>({role:m.role,content:m.content}))];
+}
+
+// ---- WebLLM (primary) ----
+async function loadWebLLM(){
+  setStatus('busy','モデル読み込み中…');setMsg('WebLLMを読み込んでいます…');
+  const webllm=await import('https://esm.run/@mlc-ai/web-llm@0.2.85');
+  const appConfig={model_list:[{
+    model:'https://huggingface.co/CharlZKP/LFM3-1.7B-MLC/resolve/main/LFM3-1.7B-q6f16_a-MLC',
+    model_id:'LFM3-1.7B-q6f16_a-MLC',
+    model_lib:'https://huggingface.co/CharlZKP/LFM3-1.7B-MLC/resolve/main/libs/LFM3-1.7B-q6f16_a_cs1k-webgpu.wasm',
+    vram_required_MB:2150,low_resource_required:true,
+    required_features:['shader-f16'],
+    overrides:{context_window_size:32768},
+  }]};
+  engine=await webllm.CreateMLCEngine('LFM3-1.7B-q6f16_a-MLC',{appConfig,
+    initProgressCallback:(r)=>{setBar(r.progress||0);setMsg((r.text||'')+'\n'+Math.round((r.progress||0)*100)+'%');}
+  });
+  engineKind='webllm';setStatus('ready','モデル読み込み済み（WebLLM / LFM3-1.7B）');setMsg('読み込み完了。キャラを選んで話しかけてね。2回目以降はキャッシュから始まるよ。');setBar(1);
+}
+$('#loadBtn').onclick=async()=>{
+  if(engine){setMsg('もう読み込み済みだよ。');return}
+  $('#loadBtn').disabled=true;
+  try{await loadWebLLM()}catch(e){
+    console.error(e);engine=null;setStatus('err','読み込み失敗');
+    setMsg('WebLLMでの読み込みに失敗したよ。\n'+(e&&e.message?e.message:String(e))+'\n\nスマホでshader-f16非対応の場合はここで止まることがあるよ。その場合はPCのChrome/Edgeで試すか、「ONNXで再試行」を押してみて。');
+  }finally{$('#loadBtn').disabled=false}
+};
+
+// ---- transformers.js (fallback) ----
+let tfGen=null;
+async function loadTransformers(){
+  setStatus('busy','ONNXモデル読み込み中…');setMsg('transformers.jsでLFM3-1.7B-ONNXを読み込んでいます…（初回は数百MB〜1GB級のダウンロード）');
+  const tf=await import('https://esm.sh/@huggingface/transformers@4.3.2');
+  const device=navigator.gpu?'webgpu':'wasm';
+  tfGen=await tf.pipeline('text-generation','LiquidAI/LFM3-1.7B-ONNX',{device,dtype:'q4',
+    progress_callback:(p)=>{if(p.progress!=null){setBar(p.progress);setMsg((p.file||'')+' '+Math.round(p.progress*100)+'%')}}});
+  engineKind='tf';setStatus('ready','モデル読み込み済み（transformers.js ONNX / LFM3-1.7B）');setMsg('ONNXでの読み込み完了。');setBar(1);
+}
+$('#fallbackBtn').onclick=async()=>{
+  $('#fallbackBtn').disabled=true;
+  try{await loadTransformers()}catch(e){
+    console.error(e);setStatus('err','ONNX読み込み失敗');
+    setMsg('ONNXでの読み込みも失敗したよ。\n'+(e&&e.message?e.message:String(e))+'\n\nこの場合はPCのChrome/Edge＋WebLLMの組み合わせが一番確実だよ。');
+  }finally{$('#fallbackBtn').disabled=false}
+};
+$('#clearCacheBtn').onclick=()=>{if(confirm('全キャラの会話履歴を消すよ。いい？')){hist={};saveHist(hist);if(current)renderMsgs()}};
+
+async function regenerate(){
+  if(!current||!hist[current.id])return;
+  const h=hist[current.id];
+  if(h.length&&h[h.length-1].role==='assistant')h.pop();
+  saveHist(hist);renderMsgs();
+  await sendInternal(true);
+}
+async function sendInternal(){
+  if(!current)return;
+  if(!engine&&!tfGen){alert('まずホームで「モデルを読み込む」を押してね。');showHome();return}
+  const h=hist[current.id];
+  if(![...h].reverse().find(m=>m.role==='user'))return;
+  stopFlag=false;$('#stopBtn').style.display='inline-block';$('#sendBtn').disabled=true;$('#genNote').textContent='考え中…';
+  const t0=performance.now();
+  // 空の返信枠を作り、生成中はここを更新する。モデルに送る履歴にはこの枠を含めない。
+  h.push({role:'assistant',content:'…'});renderMsgs();
+  const aiIndex=h.length-1;
+  const histForModel=h.slice(0,aiIndex).slice(-14);
+  const msgs=[{role:'system',content:systemPrompt(current)},...histForModel.map(m=>({role:m.role,content:m.content}))];
+  try{
+    if(engineKind==='webllm'){
+      let raw='';
+      const stream=await engine.chat.completions.create({messages:msgs,stream:true,temperature:parseFloat($('#temp').value),top_p:0.9,max_tokens:parseInt($('#maxTok').value)});
+      for await(const chunk of stream){
+        if(stopFlag){try{engine.interruptGenerate()}catch{};break}
+        raw+=chunk.choices?.[0]?.delta?.content||'';
+        h[aiIndex].content=cleanPartial(raw)||'…';
+        renderMsgs();
+      }
+      h[aiIndex].content=cleanReply(raw)||'（うまく返せなかった…もう一度送ってみて）';
+      const sec=Math.max(0.1,(performance.now()-t0)/1000);
+      $('#genNote').textContent='約 '+Math.round(raw.length/sec)+'文字/秒（目安）';
+    }else{
+      const out=await tfGen(msgs,{max_new_tokens:parseInt($('#maxTok').value),temperature:parseFloat($('#temp').value),top_k:50,repetition_penalty:1.1,do_sample:true});
+      let txt='';
+      if(Array.isArray(out)&&out[0]){
+        const g=out[0].generated_text;
+        if(Array.isArray(g))txt=g[g.length-1]?.content||'';else if(typeof g==='string')txt=g;
+      }else if(typeof out==='string')txt=out;
+      h[aiIndex].content=cleanReply(txt)||'（うまく返せなかった…もう一度送ってみて）';
+      $('#genNote').textContent='生成完了';
+    }
+  }catch(e){
+    console.error(e);
+    h[aiIndex].content='エラー: '+(e.message||e);
+    $('#genNote').textContent='エラーが出たよ';
+  }finally{
+    saveHist(hist);renderMsgs();$('#stopBtn').style.display='none';$('#sendBtn').disabled=false;
+  }
+}
+$('#sendBtn').onclick=async()=>{
+  const v=$('#input').value.trim();if(!v||!current)return;
+  hist[current.id].push({role:'user',content:v});saveHist(hist);$('#input').value='';renderMsgs();
+  await sendInternal(false);
+};
+$('#input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#sendBtn').click()}});
+$('#stopBtn').onclick=()=>{stopFlag=true;$('#genNote').textContent='止めるよ…'};
+
+// create character
+$('#createBtn').onclick=()=>$('#createDlg').showModal();
+$('#saveCharBtn').onclick=(e)=>{
+  e.preventDefault();
+  const name=$('#fName').value.trim();if(!name){alert('名前を入れてね');return}
+  const c={id:'c'+Date.now(),emoji:($('#fEmoji').value.trim()||'💬'),name,tag:$('#fTag').value.trim(),persona:$('#fPersona').value.trim(),greet:$('#fGreet').value.trim()||'こんにちは。'};
+  chars.push(c);saveChars(chars);$('#createDlg').close();renderGrid();openChat(c.id);
+  ['fName','fEmoji','fTag','fPersona','fGreet'].forEach(id=>$( '#'+id).value='');
+};
+$('#temp').oninput=()=>{$('#tempVal').textContent=$('#temp').value};
+</script>
+</body>
+</html>
